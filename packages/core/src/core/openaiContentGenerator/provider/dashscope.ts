@@ -121,13 +121,21 @@ export class DashScopeOpenAICompatibleProvider
     // This ensures max_tokens doesn't exceed the model's maximum output limit
     const requestWithTokenLimits = this.applyOutputTokenLimit(request);
 
+    // Exclude tools from requestWithTokenLimits since we handle it separately
+     
+    const { tools: _unusedTools, ...requestWithoutTools } =
+      requestWithTokenLimits;
+
     const extraBody = this.contentGeneratorConfig.extra_body;
+
+    // Only include tools if the array has items - empty arrays can cause API errors like "[] is too short - 'tools'"
+    const toolsParam = tools && tools.length > 0 ? { tools } : {};
 
     if (this.isVisionModel(request.model)) {
       return {
-        ...requestWithTokenLimits,
+        ...requestWithoutTools,
         messages,
-        ...(tools ? { tools } : {}),
+        ...toolsParam,
         ...(this.buildMetadata(userPromptId) || {}),
         /* @ts-expect-error dashscope exclusive */
         vl_high_resolution_images: true,
@@ -136,9 +144,9 @@ export class DashScopeOpenAICompatibleProvider
     }
 
     return {
-      ...requestWithTokenLimits, // Preserve all original parameters including sampling params and adjusted max_tokens
+      ...requestWithoutTools, // Preserve all original parameters including sampling params and adjusted max_tokens
       messages,
-      ...(tools ? { tools } : {}),
+      ...toolsParam,
       ...(this.buildMetadata(userPromptId) || {}),
       ...(extraBody ? extraBody : {}),
     } as OpenAI.Chat.ChatCompletionCreateParams;
@@ -201,10 +209,13 @@ export class DashScopeOpenAICompatibleProvider
             } as OpenAI.Chat.ChatCompletionMessageParam;
           });
 
+    // Only include tools if the array has items - empty arrays can cause API errors like "[] is too short - 'tools'"
     const updatedTools =
       cacheControl === 'all' && request.tools?.length
         ? this.addCacheControlToTools(request.tools)
-        : (request.tools as ChatCompletionToolWithCache[] | undefined);
+        : request.tools?.length
+          ? (request.tools as ChatCompletionToolWithCache[] | undefined)
+          : undefined;
 
     return {
       messages: updatedMessages,
@@ -279,6 +290,18 @@ export class DashScopeOpenAICompatibleProvider
     return contentArray;
   }
 
+  /**
+   * Vision-capable model patterns.
+   * Supports exact matches and prefix patterns for easy extension.
+   */
+  private static readonly VISION_MODEL_EXACT_MATCHES = new Set(['coder-model']);
+
+  private static readonly VISION_MODEL_PREFIX_PATTERNS = [
+    'qwen-vl', // qwen-vl-max, qwen-vl-max-latest, etc.
+    'qwen3-vl-plus', // qwen3-vl-plus variants
+    'qwen3.5-plus', // qwen3.5-plus (has built-in vision capabilities)
+  ];
+
   private isVisionModel(model: string | undefined): boolean {
     if (!model) {
       return false;
@@ -286,16 +309,20 @@ export class DashScopeOpenAICompatibleProvider
 
     const normalized = model.toLowerCase();
 
-    if (normalized === 'vision-model') {
+    // Check exact matches
+    if (
+      DashScopeOpenAICompatibleProvider.VISION_MODEL_EXACT_MATCHES.has(
+        normalized,
+      )
+    ) {
       return true;
     }
 
-    if (normalized.startsWith('qwen-vl')) {
-      return true;
-    }
-
-    if (normalized.startsWith('qwen3-vl-plus')) {
-      return true;
+    // Check prefix patterns
+    for (const prefix of DashScopeOpenAICompatibleProvider.VISION_MODEL_PREFIX_PATTERNS) {
+      if (normalized.startsWith(prefix)) {
+        return true;
+      }
     }
 
     return false;

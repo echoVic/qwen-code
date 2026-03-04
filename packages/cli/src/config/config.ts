@@ -11,7 +11,6 @@ import {
   DEFAULT_QWEN_EMBEDDING_MODEL,
   FileDiscoveryService,
   FileEncoding,
-  getCurrentGeminiMdFilename,
   loadServerHierarchicalMemory,
   setGeminiMdFilename as setServerGeminiMdFilename,
   resolveTelemetrySettings,
@@ -137,7 +136,6 @@ export interface CliArgs {
   googleSearchEngineId: string | undefined;
   webSearchDefault: string | undefined;
   screenReader: boolean | undefined;
-  vlmSwitchMode: string | undefined;
   inputFormat?: string | undefined;
   outputFormat: string | undefined;
   includePartialMessages?: boolean;
@@ -426,13 +424,6 @@ export async function parseArguments(): Promise<CliArgs> {
           type: 'boolean',
           description: 'Enable screen reader mode for accessibility.',
         })
-        .option('vlm-switch-mode', {
-          type: 'string',
-          choices: ['once', 'session', 'persist'],
-          description:
-            'Default behavior when images are detected in input. Values: once (one-time switch), session (switch for entire session), persist (continue with current model). Overrides settings files.',
-          default: process.env['VLM_SWITCH_MODE'],
-        })
         .option('input-format', {
           type: 'string',
           choices: ['text', 'stream-json'],
@@ -695,10 +686,8 @@ export async function loadCliConfig(
   // However, loadHierarchicalGeminiMemory is called *before* createServerConfig.
   if (settings.context?.fileName) {
     setServerGeminiMdFilename(settings.context.fileName);
-  } else {
-    // Reset to default if not provided in settings.
-    setServerGeminiMdFilename(getCurrentGeminiMdFilename());
   }
+  // If not provided in settings, keep the default which includes both QWEN.md and AGENTS.md
 
   // Automatically load output-language.md if it exists
   let outputLanguageFilePath: string | undefined = path.join(
@@ -903,9 +892,6 @@ export async function loadCliConfig(
       ? argv.screenReader
       : (settings.ui?.accessibility?.screenReader ?? false);
 
-  const vlmSwitchMode =
-    argv.vlmSwitchMode || settings.experimental?.vlmSwitchMode;
-
   let sessionId: string | undefined;
   let sessionData: ResumedSessionData | undefined;
 
@@ -1002,6 +988,7 @@ export async function loadCliConfig(
     modelProvidersConfig,
     generationConfigSources: resolvedCliConfig.sources,
     generationConfig: resolvedCliConfig.generationConfig,
+    warnings: resolvedCliConfig.warnings,
     cliVersion: await getCliVersion(),
     webSearch: buildWebSearchConfig(argv, settings, selectedAuthType),
     summarizeToolOutput: settings.model?.summarizeToolOutput,
@@ -1016,7 +1003,6 @@ export async function loadCliConfig(
     skipNextSpeakerCheck: settings.model?.skipNextSpeakerCheck,
     skipLoopDetection: settings.model?.skipLoopDetection ?? false,
     skipStartupContext: settings.model?.skipStartupContext ?? false,
-    vlmSwitchMode,
     truncateToolOutputThreshold: settings.tools?.truncateToolOutputThreshold,
     truncateToolOutputLines: settings.tools?.truncateToolOutputLines,
     enableToolOutputTruncation: settings.tools?.enableToolOutputTruncation,
