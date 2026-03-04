@@ -469,6 +469,41 @@ describe('DashScopeOpenAICompatibleProvider', () => {
       });
     });
 
+    it('should not include empty tools array in request', () => {
+      const requestWithEmptyTools: OpenAI.Chat.ChatCompletionCreateParams = {
+        ...baseRequest,
+        tools: [],
+      };
+
+      const result = provider.buildRequest(
+        requestWithEmptyTools,
+        'test-prompt-id',
+      );
+
+      // Empty tools array should be excluded to avoid API errors like "[] is too short - 'tools'"
+      expect(result.tools).toBeUndefined();
+    });
+
+    it('should include non-empty tools array in request', () => {
+      const requestWithTools: OpenAI.Chat.ChatCompletionCreateParams = {
+        ...baseRequest,
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'test_function',
+              description: 'A test function',
+            },
+          },
+        ],
+      };
+
+      const result = provider.buildRequest(requestWithTools, 'test-prompt-id');
+
+      expect(result.tools).toHaveLength(1);
+      expect(result.tools?.[0].function.name).toBe('test_function');
+    });
+
     it('should preserve all original request parameters', () => {
       const complexRequest: OpenAI.Chat.ChatCompletionCreateParams = {
         ...baseRequest,
@@ -884,9 +919,9 @@ describe('DashScopeOpenAICompatibleProvider', () => {
       ).toBe(true);
     });
 
-    it('should set high resolution flag for the vision-model alias', () => {
+    it('should set high resolution flag for the coder-model model', () => {
       const request: OpenAI.Chat.ChatCompletionCreateParams = {
-        model: 'vision-model',
+        model: 'coder-model',
         messages: [
           {
             role: 'user',
@@ -899,12 +934,13 @@ describe('DashScopeOpenAICompatibleProvider', () => {
             ],
           },
         ],
-        max_tokens: 9000,
+        max_tokens: 100000, // Exceeds the 64K limit
       };
 
       const result = provider.buildRequest(request, 'test-prompt-id');
 
-      expect(result.max_tokens).toBe(8192); // Limited to model's output limit (8K)
+      // coder-model has 64K output limit, so max_tokens should be capped
+      expect(result.max_tokens).toBe(65536);
       expect(
         (result as { vl_high_resolution_images?: boolean })
           .vl_high_resolution_images,
