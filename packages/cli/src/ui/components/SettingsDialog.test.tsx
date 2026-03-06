@@ -877,10 +877,17 @@ describe('SettingsDialog', () => {
     it('should keep restart prompt when switching scopes', async () => {
       const settings = createMockSettings();
       const onSelect = vi.fn();
+      const onRestartRequest = vi.fn();
 
-      const { stdin, lastFrame, unmount } = render(
+      vi.mocked(saveModifiedSettings).mockClear();
+
+      const { stdin, unmount } = render(
         <KeypressProvider kittyProtocolEnabled={false}>
-          <SettingsDialog settings={settings} onSelect={onSelect} />
+          <SettingsDialog
+            settings={settings}
+            onSelect={onSelect}
+            onRestartRequest={onRestartRequest}
+          />
         </KeypressProvider>,
       );
 
@@ -890,22 +897,18 @@ describe('SettingsDialog', () => {
       stdin.write(TerminalKeys.ENTER as string);
       await wait();
 
-      await waitFor(() => {
-        expect(lastFrame()).toContain(
-          'To see changes, Qwen Code must be restarted',
-        );
-      });
-
-      // Switch scopes; restart prompt should remain visible.
+      // Switch scopes; restart-required changes should still be tracked.
       stdin.write(TerminalKeys.TAB as string);
       await wait();
       stdin.write('2');
       await wait();
 
+      stdin.write('r');
+      await wait();
+
       await waitFor(() => {
-        expect(lastFrame()).toContain(
-          'To see changes, Qwen Code must be restarted',
-        );
+        expect(onRestartRequest).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(saveModifiedSettings)).toHaveBeenCalled();
       });
 
       unmount();
